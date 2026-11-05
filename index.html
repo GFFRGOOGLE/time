@@ -3,83 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Точное московское время (эталон GitHub)</title>
+    <meta name="description" content="Точное московское время (UTC+3) в реальном времени">
+    <title>Точное московское время</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            min-height: 100vh; margin: 0; background-color: #0d1117; color: #c9d1d9;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh; margin: 0;
+            background: #0d1117; color: #c9d1d9;
         }
         h1 { font-weight: 300; letter-spacing: 2px; color: #8b949e; }
         .clock {
-            font-size: 6rem; font-variant-numeric: tabular-nums; font-weight: 700;
-            color: #58a6ff; text-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
+            font-size: 6rem; font-variant-numeric: tabular-nums;
+            font-weight: 700; color: #58a6ff;
+            text-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
         }
         .date { font-size: 1.5rem; color: #8b949e; margin-top: 10px; }
-        .status { font-size: 0.9rem; color: #484f58; margin-top: 30px; }
+        .status { font-size: 0.85rem; color: #484f58; margin-top: 24px; }
     </style>
 </head>
 <body>
     <h1>МОСКВА</h1>
-    <!-- Машиночитаемый элемент для ИИ: атрибут datetime обновляется каждую секунду -->
+    <!-- Машиночитаемое время для ИИ и парсеров (обновляется скриптом) -->
     <time id="moscow-time" class="clock" datetime="">--:--:--</time>
     <div id="moscow-date" class="date"></div>
-    <div id="status" class="status">Синхронизация с сервером GitHub...</div>
+    <div id="source-status" class="status">Синхронизация...</div>
 
     <script>
-        const timeElement = document.getElementById('moscow-time');
-        const dateElement = document.getElementById('moscow-date');
-        const statusElement = document.getElementById('status');
+        const timeEl = document.getElementById('moscow-time');
+        const dateEl = document.getElementById('moscow-date');
+        const statusEl = document.getElementById('source-status');
 
-        let offsetMs = 0; // Поправка: (время_сервера - локальное_время)
+        let offsetMs = 0; // Поправка: (время_эталона - локальное_время)
 
+        // --- Форматирование ---
         function formatTime(date) {
-            return date.toLocaleTimeString('ru-RU', { hour12: false, timeZone: 'Europe/Moscow' });
+            return date.toLocaleTimeString('ru-RU', {
+                hour12: false, timeZone: 'Europe/Moscow'
+            });
         }
         function formatDate(date) {
-            return date.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Moscow' });
+            return date.toLocaleDateString('ru-RU', {
+                weekday: 'long', year: 'numeric',
+                month: 'long', day: 'numeric',
+                timeZone: 'Europe/Moscow'
+            });
         }
         function toISOWithOffset(date) {
             const pad = (n) => String(n).padStart(2, '0');
             return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}+03:00`;
         }
 
+        // --- Обновление отображения ---
         function updateDisplay() {
             const now = new Date(Date.now() + offsetMs);
-            timeElement.textContent = formatTime(now);
-            timeElement.setAttribute('datetime', toISOWithOffset(now));
-            dateElement.textContent = formatDate(now);
+            timeEl.textContent = formatTime(now);
+            timeEl.setAttribute('datetime', toISOWithOffset(now));
+            dateEl.textContent = formatDate(now);
         }
 
-        // 🎯 Надёжный расчёт: берём заголовок Date из ответа GitHub API
-        async function syncWithGitHub() {
+        // --- Синхронизация с World Time API ---
+        async function syncWithWorldTime() {
             try {
-                statusElement.textContent = 'Запрос точного времени у GitHub...';
-                // HEAD-запрос не скачивает тело ответа, только заголовки — быстро и экономно
-                const response = await fetch('https://api.github.com', { method: 'HEAD' });
-                
-                const serverDateStr = response.headers.get('Date');
-                if (!serverDateStr) throw new Error('Нет заголовка Date');
+                statusEl.textContent = 'Запрос точного времени...';
+                const res = await fetch('https://worldtimeapi.org/api/timezone/Europe/Moscow');
+                if (!res.ok) throw new Error('API error');
+                const data = await res.json();
 
-                const serverTime = new Date(serverDateStr).getTime();
-                offsetMs = serverTime - Date.now(); // Вычисляем поправку
-
-                statusElement.textContent = 'Источник: серверы GitHub API (NTP-синхронизация)';
+                // data.utc_datetime — точное UTC-время сервера
+                const serverUtc = new Date(data.utc_datetime).getTime();
+                offsetMs = serverUtc - Date.now();
+                statusEl.textContent = 'Источник: World Time API (UTC+3)';
                 updateDisplay();
             } catch (e) {
-                console.warn('Не удалось синхронизироваться с GitHub, используем локальные часы.', e);
-                // Аварийный резерв: локальное время с поправкой на Москву (UTC+3)
-                const moscowMs = Date.now() + (3 * 60 * 60 * 1000);
+                console.warn('API недоступен, переключаемся на локальные часы с поправкой UTC+3.', e);
+
+                // Резерв: локальное время + 3 часа от UTC
+                const localUtcMs = Date.now();
+                const moscowMs = localUtcMs + (3 * 60 * 60 * 1000); // UTC+3
                 offsetMs = moscowMs - Date.now();
-                statusElement.textContent = 'Источник: локальные часы (резерв, UTC+3)';
+                statusEl.textContent = 'Источник: локальные часы (UTC+3, резерв)';
                 updateDisplay();
             }
         }
 
-        // Запуск
-        syncWithGitHub();
-        setInterval(updateDisplay, 1000);          // Обновление цифр каждую секунду
-        setInterval(syncWithGitHub, 300000);        // Пересинхронизация раз в 5 минут (компенсация дрейфа)
+        // --- Запуск ---
+        syncWithWorldTime();
+        setInterval(updateDisplay, 1000);           // Тикаем каждую секунду
+        setInterval(syncWithWorldTime, 600000);     // Пересинхронизация раз в 10 минут
     </script>
 </body>
 </html>
